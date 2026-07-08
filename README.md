@@ -1,72 +1,43 @@
-# Real-Time Order Processing Pipeline (Kafka + Java)
+# Real-Time Order Processing Pipeline
 
-Simulates an e-commerce checkout stream: a producer publishes order events to
-Kafka, and a consumer processes them in real time to keep a running revenue
-total per product — similar to what would sit behind a live sales dashboard.
+I built this to get hands-on with Kafka since I'd only used it at a high level before (through PySpark pipelines at my last job). Wanted to actually build the producer/consumer side myself instead of just consuming from an existing stream.
 
-## Stack
-Java 17, Apache Kafka (via Docker), Maven, Jackson (JSON serialization)
+The idea: pretend we're an e-commerce checkout system. Every time a customer "orders" something, that event gets published to Kafka. On the other end, a consumer picks it up and keeps a running total of revenue per product, live, instead of waiting for a batch job to run.
 
-## How to run it locally
+## Built with
 
-1. **Start Kafka** (Zookeeper + broker + a web UI to see messages):
-   ```bash
-   docker-compose up -d
-   ```
-   Check it's running: open http://localhost:8080 (Kafka UI).
+Java 17, Kafka (running locally in Docker), Maven, Jackson for JSON
 
-2. **Build the project:**
-   ```bash
-   mvn clean package
-   ```
+## Running it
 
-3. **Run the consumer first** (in one terminal), so it's listening before
-   messages arrive:
-   ```bash
-   mvn exec:java -Dexec.mainClass="com.akanksha.kafkapipeline.OrderConsumer"
-   ```
+You'll need Docker and Maven installed.
 
-4. **Run the producer** (in a second terminal) to start generating orders:
-   ```bash
-   mvn exec:java -Dexec.mainClass="com.akanksha.kafkapipeline.OrderProducer"
-   ```
+First, spin up Kafka:
 
-You'll see the producer logging each order it sends with its partition/offset,
-and the consumer logging each order it reads along with the running revenue
-total per product.
+docker-compose up -d
 
-5. **Tear down:**
-   ```bash
-   docker-compose down
-   ```
+There's a UI at localhost:8080 if you want to actually see the topic and messages instead of just trusting it's working.
 
-## What's actually happening
+Build it:
 
-- `Order.java` — the event schema (order id, customer, product, qty, price, timestamp).
-- `OrderProducer.java` — generates 50 fake orders and publishes them to the
-  `orders` topic, keyed by `customerId`.
-- `OrderConsumer.java` — subscribes to `orders`, deserializes each message,
-  and maintains an in-memory running total of revenue per product.
+mvn clean package
 
-## Design decisions worth knowing cold for an interview
+I usually start the consumer first so it's already listening when orders start coming in:
 
-- **Keyed by `customerId`** — Kafka guarantees all messages with the same key
-  go to the same partition, in order. So one customer's orders are always
-  processed in sequence, even though different customers' orders can be
-  processed in parallel across partitions.
-- **`acks=all` on the producer** — the producer waits for all in-sync
-  replicas to confirm a write before treating it as successful. Safer against
-  data loss, at the cost of a bit of latency. Worth contrasting with
-  `acks=1` (leader only) or `acks=0` (fire and forget).
-- **Consumer group (`order-analytics-group`)** — if you ran a second instance
-  of `OrderConsumer` with the same group id, Kafka would automatically split
-  the topic's partitions between the two, giving parallel processing with no
-  code changes. A different group id would instead get its own independent
-  copy of the whole stream.
-- **`auto.offset.reset=earliest`** — controls what happens the first time this
-  consumer group runs, when it has no committed offset yet: start from the
-  beginning of the topic rather than only new messages.
-- **JSON over raw bytes** — trades a bit of message size/parsing overhead for
-  human-readable, schema-flexible messages. In a production system at scale
-  I'd likely move to Avro + a schema registry to enforce schema compatibility
-  and cut payload size.
+mvn exec:java -Dexec.mainClass="com.akanksha.kafkapipeline.OrderConsumer"
+
+Then in a separate terminal, kick off the producer:
+
+mvn exec:java -Dexec.mainClass="com.akanksha.kafkapipeline.OrderProducer"
+
+It sends 50 fake orders with a short delay between each so you can actually watch it happen instead of it dumping everything at once. The consumer terminal will show each order coming in along with the updated running total for that product.
+
+When you're done:
+
+docker-compose down
+
+## Files
+
+- Order.java - just the data model, what an order looks like (id, customer, product, qty, price, timestamp)
+- OrderProducer.java - generates the fake orders and sends them to the orders topic
+- OrderConsumer.java - reads from orders and keeps a running revenue count per product in memory
